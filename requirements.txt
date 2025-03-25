@@ -1,0 +1,4 @@
+PyQt5==5.15.9
+numpy==1.24.3
+pygame==2.5.1  # Để xử lý âm thanh nếu cần
+torch==2.0.1  # Cho machine learning và reinforcement learning
