@@ -4,12 +4,13 @@
 import os
 import numpy as np
 from PyQt5.QtWidgets import QWidget, QMessageBox
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap, QFont, QImage
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer
 from pieces import Piece, General, Advisor, Elephant, Horse, Chariot, Cannon, Soldier
 import copy
 import time
 from ai import ChineseChessAI
+from PIL import Image, ImageDraw, ImageFont
 
 # Kích thước bàn cờ
 BOARD_WIDTH = 9  # Số cột
@@ -20,7 +21,7 @@ RED = QColor(255, 0, 0)
 BLACK = QColor(0, 0, 0)
 BOARD_COLOR = QColor(238, 203, 173)
 LINE_COLOR = QColor(0, 0, 0)
-SELECTED_COLOR = QColor(0, 255, 0, 100)
+SELECTED_COLOR = QColor(0, 255, 0, 100)  # Màu hiển thị nước đi cuối cùng
 LAST_MOVE_COLOR = QColor(0, 0, 255, 80)  # Màu hiển thị nước đi cuối cùng
 VALID_MOVE_COLOR = QColor(200, 200, 0, 150)  # Màu hiển thị các điểm có thể đi
 
@@ -40,39 +41,53 @@ class ChineseChessBoard(QWidget):
         super().__init__(parent)
         self.setMinimumSize(600, 667)  # Tỷ lệ 9:10
         
-        # Khởi tạo biến
-        self.cell_size = 60  # Kích thước ô cờ
-        self.margin = 30  # Lề
-        self.board = np.zeros((BOARD_HEIGHT, BOARD_WIDTH), dtype=object)
-        self.selected_piece = None
-        self.selected_pos = None
-        self.current_player = RED  # Đỏ đi trước
-        self.ai_level = "medium"
-        self.game_mode = "human_vs_human"  # Mặc định: người đấu với người
+        # Kích thước ô cờ và màu sắc
+        self.cell_size = 60
+        self.board_margin = 30  # Lề bàn cờ
+        self.grid_color = QColor(0, 0, 0)
+        self.board_color = BOARD_COLOR
+        self.selected_color = SELECTED_COLOR
+        self.hint_color = QColor(0, 255, 0, 100)
         
-        # Biến theo dõi nước đi cuối cùng
-        self.last_move_from = None
-        self.last_move_to = None
-        
-        # Biến theo dõi trạng thái chiếu tướng
-        self.red_in_check = False
-        self.black_in_check = False
-        
-        # Lịch sử nước đi
-        self.move_history = []
-        self.captured_pieces = []
-        
-        # Các vị trí hợp lệ để di chuyển
-        self.valid_moves = []
+        # Khởi tạo bàn cờ
+        self.board = [[0 for _ in range(9)] for _ in range(10)]
+        self.reset_board()
         
         # Khởi tạo AI
         self.ai = ChineseChessAI()
+        self.ai_level = "medium"  # Mặc định là mức trung bình
         
-        # Khởi tạo bàn cờ
-        self.reset_board()
+        # Theo dõi trạng thái chọn quân cờ
+        self.selected_piece = None
+        self.selected_position = None
+        
+        # Chế độ chơi
+        self.game_mode = "human_vs_human"  # Mặc định là người vs người
+        
+        # Lịch sử nước đi để hoàn tác
+        self.move_history = []
+        
+        # Quân cờ bị bắt
+        self.captured_pieces = []
+        
+        # Trạng thái game
+        self.current_player = RED  # Quân đỏ đi trước
+        self.game_over_state = False
+        
+        # Biến theo dõi chiếu tướng
+        self.red_in_check = False
+        self.black_in_check = False
+        
+        # Biến lưu trữ nước đi gần nhất
+        self.last_move = None  # tuple ((from_row, from_col), (to_row, to_col))
+        self.last_move_is_ai = False
         
         # Cho phép theo dõi chuột để di chuyển quân cờ
         self.setMouseTracking(True)
+        
+        # Tạo cache cho hình ảnh quân cờ
+        self.piece_images = {}
+        self.create_piece_images()
     
     def reset_board(self):
         """Khởi tạo lại bàn cờ"""
@@ -132,11 +147,11 @@ class ChineseChessBoard(QWidget):
         # Đỏ đi trước
         self.current_player = RED
         self.selected_piece = None
-        self.selected_pos = None
+        self.selected_position = None
         
         # Đặt lại nước đi cuối cùng
-        self.last_move_from = None
-        self.last_move_to = None
+        self.last_move = None
+        self.last_move_is_ai = False
         
         # Đặt lại trạng thái chiếu tướng
         self.red_in_check = False
@@ -145,9 +160,6 @@ class ChineseChessBoard(QWidget):
         # Đặt lại lịch sử
         self.move_history = []
         self.captured_pieces = []
-        
-        # Đặt lại các vị trí hợp lệ
-        self.valid_moves = []
         
         # Đặt lại trạng thái kết thúc trò chơi
         self.game_over_state = False
@@ -162,15 +174,96 @@ class ChineseChessBoard(QWidget):
     
     def set_game_mode(self, mode):
         """Thiết lập chế độ chơi"""
-        self.game_mode = mode
+        if self.game_mode != mode:
+            old_mode = self.game_mode
+            self.game_mode = mode
+            # KHÔNG gọi lại bất kỳ phương thức nào khác ở đây để tránh đệ quy
+    
+    def create_piece_images(self):
+        """Tạo hình ảnh quân cờ bằng Pillow"""
+        piece_size = int(self.cell_size * 0.85)  # Kích thước quân cờ (85% ô)
+        
+        piece_types = {
+            "general": "帅",
+            "advisor": "仕",
+            "elephant": "相",
+            "horse": "馬",
+            "chariot": "車",
+            "cannon": "炮",
+            "soldier": "兵",
+        }
+        
+        black_piece_types = {
+            "general": "将",
+            "advisor": "士",
+            "elephant": "象",
+            "horse": "馬",
+            "chariot": "車",
+            "cannon": "砲",
+            "soldier": "卒",
+        }
+        
+        colors = {
+            "red": ((231, 76, 60), (255, 220, 220)),  # (Viền, Nền)
+            "black": ((52, 73, 94), (220, 220, 255))  # (Viền, Nền)
+        }
+        
+        for color_name, (border_color, bg_color) in colors.items():
+            types = piece_types if color_name == "red" else black_piece_types
+            for piece_type, symbol in types.items():
+                # Tạo hình tròn
+                img = Image.new('RGBA', (piece_size, piece_size), (0, 0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                
+                # Vẽ hình tròn đầy màu nền
+                draw.ellipse((2, 2, piece_size-2, piece_size-2), fill=bg_color)
+                
+                # Vẽ viền
+                draw.ellipse((2, 2, piece_size-2, piece_size-2), outline=border_color, width=3)
+                
+                # Thêm chữ
+                try:
+                    # Thử tải font tiếng Trung
+                    font = ImageFont.truetype("Arial Unicode MS", int(piece_size * 0.6))
+                except:
+                    try:
+                        # Thử font khác
+                        font = ImageFont.truetype("simsun.ttc", int(piece_size * 0.6))
+                    except:
+                        # Dùng font mặc định
+                        font = ImageFont.load_default()
+                
+                # Tính toán vị trí text để căn giữa - sử dụng getbbox thay vì textsize
+                try:
+                    # Phương thức mới trong Pillow
+                    bbox = draw.textbbox((0, 0), symbol, font=font)
+                    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                except:
+                    try:
+                        # Thử phương thức getsize (cho phiên bản cũ hơn)
+                        w, h = font.getsize(symbol)
+                    except:
+                        # Giá trị mặc định
+                        w, h = piece_size // 2, piece_size // 2
+                
+                position = ((piece_size-w)//2, (piece_size-h)//2 - 5)  # -5 để điều chỉnh độ cao
+                
+                # Vẽ text
+                draw.text(position, symbol, fill=border_color, font=font)
+                
+                # Chuyển đổi PIL Image sang QPixmap
+                img_data = img.convert("RGBA").tobytes("raw", "RGBA")
+                qimg = QImage(img_data, img.width, img.height, QImage.Format_RGBA8888)
+                pixmap = QPixmap.fromImage(qimg)
+                self.piece_images[(color_name, piece_type)] = pixmap
     
     def paintEvent(self, event):
         """Vẽ bàn cờ và quân cờ"""
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.Antialiasing, True)
         
         # Vẽ nền bàn cờ
-        painter.fillRect(self.rect(), BOARD_COLOR)
+        painter.fillRect(self.rect(), self.board_color)
         
         # Vẽ lưới bàn cờ
         self._draw_board_grid(painter)
@@ -186,32 +279,32 @@ class ChineseChessBoard(QWidget):
     
     def _draw_board_grid(self, painter):
         """Vẽ lưới bàn cờ"""
-        pen = QPen(LINE_COLOR, 1)
+        pen = QPen(self.grid_color, 1)
         painter.setPen(pen)
         
         # Vẽ các đường ngang
         for i in range(BOARD_HEIGHT):
-            y = self.margin + i * self.cell_size
-            painter.drawLine(self.margin, y, 
-                             self.margin + (BOARD_WIDTH - 1) * self.cell_size, y)
+            y = self.board_margin + i * self.cell_size
+            painter.drawLine(self.board_margin, y, 
+                             self.board_margin + (BOARD_WIDTH - 1) * self.cell_size, y)
         
         # Vẽ các đường dọc
         for j in range(BOARD_WIDTH):
-            x = self.margin + j * self.cell_size
-            painter.drawLine(x, self.margin, 
-                             x, self.margin + (BOARD_HEIGHT - 1) * self.cell_size)
+            x = self.board_margin + j * self.cell_size
+            painter.drawLine(x, self.board_margin, 
+                             x, self.board_margin + (BOARD_HEIGHT - 1) * self.cell_size)
         
         # Vẽ cung điện (3x3) cho cả hai bên
         # Cung điện dưới (Đỏ)
-        palace_x = self.margin + 3 * self.cell_size
-        palace_y_bottom = self.margin + 7 * self.cell_size
+        palace_x = self.board_margin + 3 * self.cell_size
+        palace_y_bottom = self.board_margin + 7 * self.cell_size
         painter.drawLine(palace_x, palace_y_bottom, 
                          palace_x + 2 * self.cell_size, palace_y_bottom + 2 * self.cell_size)
         painter.drawLine(palace_x + 2 * self.cell_size, palace_y_bottom, 
                          palace_x, palace_y_bottom + 2 * self.cell_size)
         
         # Cung điện trên (Đen)
-        palace_y_top = self.margin
+        palace_y_top = self.board_margin
         painter.drawLine(palace_x, palace_y_top, 
                          palace_x + 2 * self.cell_size, palace_y_top + 2 * self.cell_size)
         painter.drawLine(palace_x + 2 * self.cell_size, palace_y_top, 
@@ -219,55 +312,70 @@ class ChineseChessBoard(QWidget):
         
         # Vẽ sông
         painter.setPen(QPen(Qt.blue, 1, Qt.DashLine))
-        river_y = self.margin + 4 * self.cell_size
-        painter.drawLine(self.margin, river_y, 
-                         self.margin + (BOARD_WIDTH - 1) * self.cell_size, river_y)
-        river_y = self.margin + 5 * self.cell_size
-        painter.drawLine(self.margin, river_y, 
-                         self.margin + (BOARD_WIDTH - 1) * self.cell_size, river_y)
+        river_y = self.board_margin + 4 * self.cell_size
+        painter.drawLine(self.board_margin, river_y, 
+                         self.board_margin + (BOARD_WIDTH - 1) * self.cell_size, river_y)
+        river_y = self.board_margin + 5 * self.cell_size
+        painter.drawLine(self.board_margin, river_y, 
+                         self.board_margin + (BOARD_WIDTH - 1) * self.cell_size, river_y)
     
     def _draw_last_move(self, painter):
         """Vẽ đánh dấu nước đi cuối cùng"""
-        if self.last_move_from and self.last_move_to:
-            # Vẽ ô nguồn (vị trí cũ) - vẽ một vòng tròn đỏ không có nền
-            from_row, from_col = self.last_move_from
-            x_from = self.margin + from_col * self.cell_size
-            y_from = self.margin + from_row * self.cell_size
+        if not self.last_move:
+            return
             
-            # Thiết lập bút vẽ màu đỏ, độ dày 2
-            painter.setBrush(Qt.NoBrush)  # Không có nền
-            painter.setPen(QPen(Qt.red, 2))  # Viền đỏ, độ dày 2
-            
-            # Vẽ vòng tròn ở vị trí cũ
-            radius = self.cell_size // 2 - 4  # Giảm bán kính một chút để hiển thị đẹp hơn
-            painter.drawEllipse(x_from - radius, y_from - radius, radius * 2, radius * 2)
-            
-            # Vẽ ô đích (vị trí mới) - vẫn giữ nguyên kiểu hiện tại
-            to_row, to_col = self.last_move_to
-            x_to = self.margin + to_col * self.cell_size
-            y_to = self.margin + to_row * self.cell_size
-            
-            painter.setBrush(QBrush(LAST_MOVE_COLOR))
-            painter.setPen(Qt.NoPen)
-            painter.drawRect(x_to - self.cell_size // 2, y_to - self.cell_size // 2,
-                           self.cell_size, self.cell_size)
+        # Lấy vị trí đi từ và đến
+        (from_row, from_col), (to_row, to_col) = self.last_move
+        
+        # Tính toán tọa độ
+        from_x = self.board_margin + from_col * self.cell_size
+        from_y = self.board_margin + from_row * self.cell_size
+        to_x = self.board_margin + to_col * self.cell_size
+        to_y = self.board_margin + to_row * self.cell_size
+        
+        # Thiết lập bút vẽ
+        pen = QPen()
+        pen.setColor(QColor(150, 50, 255, 200))  # Màu tím nhạt với độ trong suốt
+        pen.setWidth(3)
+        pen.setStyle(Qt.DotLine)  # Kiểu đường đứt nét
+        painter.setPen(pen)
+        
+        # Vẽ đường nối từ vị trí đi đến vị trí đến
+        painter.drawLine(from_x, from_y, to_x, to_y)
+        
+        # Vẽ hình tròn nhỏ tại vị trí đi
+        painter.setBrush(QBrush(QColor(150, 50, 255, 200)))
+        painter.drawEllipse(QPoint(from_x, from_y), 8, 8)
+        
+        # Vẽ hình tròn lớn hơn tại vị trí đến
+        painter.drawEllipse(QPoint(to_x, to_y), 12, 12)
     
     def _draw_valid_moves(self, painter):
-        """Vẽ đánh dấu các điểm có thể đi"""
-        if self.valid_moves:
-            for row, col in self.valid_moves:
-                x = self.margin + col * self.cell_size
-                y = self.margin + row * self.cell_size
-                
-                # Chỉ vẽ vòng tròn cho các vị trí trống (không có quân cờ)
-                if self.board[row][col] == 0:
-                    # Vẽ vòng tròn đánh dấu vị trí hợp lệ
-                    painter.setBrush(QBrush(VALID_MOVE_COLOR))
-                    painter.setPen(QPen(Qt.black, 1))
-                    # Vẽ một vòng tròn nhỏ hơn để đánh dấu vị trí có thể đi
-                    radius = self.cell_size // 4
-                    painter.drawEllipse(x - radius, y - radius, radius * 2, radius * 2)
-                # Không vẽ gì cả cho vị trí có quân cờ, vì quân cờ sẽ được vẽ với độ trong suốt trong _draw_pieces
+        """Vẽ các vị trí hợp lệ có thể di chuyển đến"""
+        if not self.selected_piece or not self.selected_position:
+            return
+            
+        valid_moves = self.get_valid_moves(self.selected_position[0], self.selected_position[1])
+        
+        for move in valid_moves:
+            row, col = move
+            x = self.board_margin + col * self.cell_size
+            y = self.board_margin + row * self.cell_size
+            
+            # Kiểm tra xem vị trí này có quân cờ đối phương không
+            piece = self.board[row][col]
+            if piece != 0 and piece.color != self.selected_piece.color:
+                # Vẽ vòng tròn đỏ xung quanh quân cờ có thể ăn được
+                radius = self.cell_size // 2 - 2
+                painter.setBrush(Qt.NoBrush)  # Không tô màu
+                painter.setPen(QPen(QColor(255, 0, 0), 3))  # Viền đỏ dày
+                painter.drawEllipse(x - radius - 4, y - radius - 4, 
+                                   (radius + 4) * 2, (radius + 4) * 2)
+            else:
+                # Vẽ điểm nhỏ tại vị trí hợp lệ không có quân
+                painter.setBrush(QBrush(QColor(0, 230, 0, 150)))  # Màu xanh lá với độ trong suốt
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPoint(x, y), 10, 10)
     
     def _draw_pieces(self, painter):
         """Vẽ quân cờ trên bàn cờ"""
@@ -276,47 +384,18 @@ class ChineseChessBoard(QWidget):
                 piece = self.board[i][j]
                 if piece != 0:
                     # Tọa độ tâm của quân cờ
-                    x = self.margin + j * self.cell_size
-                    y = self.margin + i * self.cell_size
+                    x = self.board_margin + j * self.cell_size
+                    y = self.board_margin + i * self.cell_size
                     
                     # Vẽ vùng được chọn
-                    if self.selected_pos and self.selected_pos == (i, j):
-                        painter.setBrush(QBrush(SELECTED_COLOR))
+                    if self.selected_position and self.selected_position == (i, j):
+                        painter.setBrush(QBrush(self.selected_color))
                         painter.setPen(Qt.NoPen)
                         painter.drawEllipse(x - self.cell_size // 2, y - self.cell_size // 2, 
                                            self.cell_size, self.cell_size)
                     
                     # Vẽ quân cờ
-                    radius = self.cell_size // 2 - 2
-                    
-                    # Màu quân cờ
-                    if piece.color == RED:
-                        piece_color = QColor(220, 50, 50)
-                        text_color = Qt.white
-                    else:
-                        piece_color = QColor(30, 30, 30)
-                        text_color = Qt.white
-                    
-                    # Nếu quân cờ có thể bị ăn (nằm trong danh sách các vị trí hợp lệ), giảm độ đục (tăng độ trong suốt)
-                    if self.valid_moves and (i, j) in self.valid_moves:
-                        piece_color.setAlpha(150)  # Alpha range is 0-255, 150 means 60% opacity
-                    
-                    # Vẽ hình tròn quân cờ
-                    painter.setBrush(QBrush(piece_color))
-                    painter.setPen(QPen(Qt.black, 1))
-                    painter.drawEllipse(x - radius, y - radius, radius * 2, radius * 2)
-                    
-                    # Vẽ tên quân cờ
-                    painter.setPen(QPen(text_color))
-                    font = painter.font()
-                    font.setBold(True)
-                    font.setPointSize(12)
-                    painter.setFont(font)
-                    
-                    # Vị trí văn bản
-                    piece_name = piece.get_name()
-                    text_rect = QRect(x - radius, y - radius, radius * 2, radius * 2)
-                    painter.drawText(text_rect, Qt.AlignCenter, piece_name)
+                    self._draw_piece(painter, i, j)
                     
                     # Vẽ vòng đỏ khi tướng bị chiếu
                     if isinstance(piece, General):
@@ -324,282 +403,144 @@ class ChineseChessBoard(QWidget):
                             # Vẽ vòng đỏ xung quanh tướng
                             painter.setBrush(Qt.NoBrush)
                             painter.setPen(QPen(Qt.red, 3))  # Viền đỏ dày
-                            check_radius = radius + 2  # Vòng tròn hơi lớn hơn quân cờ
+                            check_radius = self.cell_size // 2 - 4  # Vòng tròn hơi lớn hơn quân cờ
                             painter.drawEllipse(x - check_radius, y - check_radius, check_radius * 2, check_radius * 2)
     
-    def mousePressEvent(self, event):
-        """Xử lý sự kiện khi người dùng nhấp chuột vào bàn cờ"""
-        # Lấy vị trí được nhấp
-        col = int(event.x() / self.cell_size)
-        row = int(event.y() / self.cell_size)
-        
-        # Nếu game đã kết thúc, không cho phép di chuyển
-        if self.game_over_state:
-            return
-        
-        # Nếu đang ở chế độ người vs máy và lượt của máy, bỏ qua click
-        if self.game_mode == "human_vs_ai" and self.current_player == BLACK:
-            return
-        
-        # Nếu đã chọn một quân cờ trước đó
-        if self.selected_piece:
-            selected_row, selected_col = self.selected_piece
-            
-            # Nếu nhấp vào vị trí đã chọn, hủy chọn
-            if row == selected_row and col == selected_col:
-                self.selected_piece = None
-                self.valid_moves = []
-                self.update()
-                return
-            
-            # Nếu nhấp vào một vị trí hợp lệ để di chuyển
-            if (row, col) in self.valid_moves:
-                # Lưu trạng thái trước khi di chuyển
-                self._save_move_state(selected_row, selected_col, row, col)
-                
-                # Kiểm tra xem có bắt được quân cờ không
-                captured_piece = None
-                if self.board[row][col] != 0 and self.board[row][col] != ' ':
-                    captured_piece = self.board[row][col]
-                    # Phát tín hiệu báo quân cờ bị bắt
-                    self.piece_captured.emit(captured_piece)
-                
-                # Di chuyển quân cờ
-                self.board[row][col] = self.board[selected_row][selected_col]
-                self.board[selected_row][selected_col] = 0
-                
-                # Ghi nhớ nước đi cuối cùng
-                self.last_move_from = (selected_row, selected_col)
-                self.last_move_to = (row, col)
-                
-                # Hủy chọn quân cờ
-                self.selected_piece = None
-                self.valid_moves = []
-                
-                # Chuyển lượt
-                self.current_player = RED if self.current_player == BLACK else BLACK
-                
-                # Kiểm tra tình trạng chiếu tướng
-                self._check_for_check()
-                
-                # Kiểm tra game kết thúc
-                result = self._check_game_over()
-                if result:
-                    self.game_over_state = True
-                    self.game_over.emit(result)
-                
-                # Cập nhật giao diện
-                self.update()
-                
-                # Nếu đang ở chế độ người vs máy và đến lượt máy, thực hiện nước đi của máy
-                if self.game_mode == "human_vs_ai" and self.current_player == BLACK and not self.game_over_state:
-                    # Chờ một chút trước khi AI đi để tạo cảm giác AI đang suy nghĩ
-                    QTimer.singleShot(500, self.make_ai_move)
-                
-                return
-            
-            # Nếu nhấp vào quân cờ khác của cùng người chơi, chọn quân cờ đó
-            piece = self.board[row][col]
-            if piece != 0 and piece != ' ':
-                if (self.current_player == RED and piece.color == RED) or \
-                   (self.current_player == BLACK and piece.color == BLACK):
-                    self.selected_piece = (row, col)
-                    self.valid_moves = self._calculate_valid_moves(row, col)
-                    self.update()
-                return
-        
-        # Nếu chưa chọn quân cờ, kiểm tra xem ô được nhấp có phải là quân cờ của người chơi hiện tại
-        piece = self.board[row][col]
-        if piece != 0 and piece != ' ':
-            if (self.current_player == RED and piece.color == RED) or \
-               (self.current_player == BLACK and piece.color == BLACK):
-                self.selected_piece = (row, col)
-                self.valid_moves = self._calculate_valid_moves(row, col)
-                self.update()
-    
-    def _calculate_valid_moves(self, row, col):
-        """Tính toán các vị trí hợp lệ cho quân cờ tại vị trí (row, col)"""
-        self.valid_moves = []
+    def _draw_piece(self, painter, row, col):
+        """Vẽ quân cờ tại vị trí (row, col)"""
         piece = self.board[row][col]
         
-        if piece == 0:
-            return self.valid_moves
+        # Tính vị trí trung tâm của ô
+        x = self.board_margin + col * self.cell_size
+        y = self.board_margin + row * self.cell_size
         
-        print(f"Đang tính toán nước đi hợp lệ cho {piece.get_name()} tại vị trí ({row}, {col})")
+        # Vẽ theo kiểu cũ (không sử dụng hình ảnh Pillow)
+        # Vẽ hình tròn
+        radius = self.cell_size // 2 - 2
         
-        # Kiểm tra xem tướng có đang bị chiếu không
-        is_in_check = (self.red_in_check and piece.color == RED) or (self.black_in_check and piece.color == BLACK)
+        # Thiết lập màu
+        painter.setBrush(QBrush(QColor(255, 255, 240)))
         
-        # Nếu đang bị chiếu, cần phải tìm các nước đi để giải quyết tình trạng chiếu tướng
-        if is_in_check:
-            for to_row in range(BOARD_HEIGHT):
-                for to_col in range(BOARD_WIDTH):
-                    # Nếu vị trí đích khác vị trí hiện tại và nước đi hợp lệ
-                    if (to_row, to_col) != (row, col) and piece.is_valid_move(self.board, (row, col), (to_row, to_col)):
-                        # Thử nước đi này để xem có giải quyết được tình trạng chiếu tướng không
-                        if self._move_resolves_check(row, col, to_row, to_col):
-                            print(f"  - Nước đi hợp lệ (giải quyết chiếu tướng): ({to_row}, {to_col})")
-                            self.valid_moves.append((to_row, to_col))
+        if piece.color == RED:
+            painter.setPen(QPen(RED, 2))
         else:
-            # Nếu không bị chiếu, tính toán các nước đi bình thường
-            for to_row in range(BOARD_HEIGHT):
-                for to_col in range(BOARD_WIDTH):
-                    # Nếu vị trí đích khác vị trí hiện tại và nước đi hợp lệ
-                    if (to_row, to_col) != (row, col) and piece.is_valid_move(self.board, (row, col), (to_row, to_col)):
-                        # Kiểm tra xem nước đi này có khiến tướng bị chiếu không
-                        if not self._move_causes_check(row, col, to_row, to_col):
-                            print(f"  - Nước đi hợp lệ: ({to_row}, {to_col})")
-                            self.valid_moves.append((to_row, to_col))
+            painter.setPen(QPen(BLACK, 2))
         
-        return self.valid_moves
+        # Vẽ hình tròn
+        painter.drawEllipse(QPoint(x, y), radius, radius)
+        
+        # Vẽ tên quân cờ
+        painter.setPen(piece.color)
+        
+        # Điều chỉnh font chữ - Tăng kích thước gấp đôi
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(24)  # Tăng từ 12 lên 24
+        painter.setFont(font)
+        
+        # Vẽ tên
+        painter.drawText(QRect(x - radius, y - radius, radius * 2, radius * 2),
+                        Qt.AlignCenter, piece.get_name())
+        
+        # Nếu đây là nước đi cuối của AI, vẽ đánh dấu đặc biệt
+        if self.last_move_is_ai and self.last_move and self.last_move[1] == (row, col):
+            # Vẽ một vòng tròn đỏ nhỏ xung quanh quân cờ
+            painter.save()
+            pen = QPen(QColor(255, 0, 0))  # Màu đỏ
+            pen.setWidth(3)
+            painter.setPen(pen)
+            expand = 8  # Kích thước mở rộng so với quân cờ
+            painter.drawEllipse(x - radius - expand//2, 
+                                y - radius - expand//2,
+                                radius * 2 + expand, 
+                                radius * 2 + expand)
+            painter.restore()
     
-    def _move_resolves_check(self, from_row, from_col, to_row, to_col):
-        """Kiểm tra xem nước đi có giải quyết được tình trạng chiếu tướng không"""
-        # Lưu trạng thái hiện tại
-        piece = self.board[from_row][from_col]
-        target = self.board[to_row][to_col]
-        color = piece.color
+    def _draw_selected(self, painter, row, col):
+        """Vẽ đánh dấu quân cờ được chọn"""
+        x = self.board_margin + col * self.cell_size
+        y = self.board_margin + row * self.cell_size
+        radius = self.cell_size // 2
         
-        # Thử di chuyển
-        self.board[to_row][to_col] = piece
-        self.board[from_row][from_col] = 0
-        piece.position = (to_row, to_col)
-        
-        # Kiểm tra xem sau khi di chuyển, tướng có còn bị chiếu không
-        is_still_check = False
-        
-        # Tìm vị trí tướng
-        general_pos = None
-        for i in range(BOARD_HEIGHT):
-            for j in range(BOARD_WIDTH):
-                p = self.board[i][j]
-                if isinstance(p, General) and p.color == color:
-                    general_pos = (i, j)
-                    break
-            if general_pos:
-                break
-        
-        # Kiểm tra xem có quân nào của đối phương có thể ăn tướng không
-        if general_pos:
-            for i in range(BOARD_HEIGHT):
-                for j in range(BOARD_WIDTH):
-                    p = self.board[i][j]
-                    if p != 0 and p.color != color:
-                        if p.is_valid_move(self.board, (i, j), general_pos):
-                            is_still_check = True
-                            break
-                if is_still_check:
-                    break
-        
-        # Khôi phục trạng thái
-        self.board[from_row][from_col] = piece
-        self.board[to_row][to_col] = target
-        piece.position = (from_row, from_col)
-        
-        # Trả về True nếu nước đi giải quyết được tình trạng chiếu tướng
-        return not is_still_check
-
-    def _move_causes_check(self, from_row, from_col, to_row, to_col):
-        """Kiểm tra xem nước đi có khiến tướng bị chiếu không"""
-        # Lưu trạng thái hiện tại
-        piece = self.board[from_row][from_col]
-        target = self.board[to_row][to_col]
-        color = piece.color
-        
-        # Thử di chuyển
-        self.board[to_row][to_col] = piece
-        self.board[from_row][from_col] = 0
-        piece.position = (to_row, to_col)
-        
-        # Kiểm tra xem sau khi di chuyển, tướng có bị chiếu không
-        causes_check = False
-        
-        # Tìm vị trí tướng
-        general_pos = None
-        for i in range(BOARD_HEIGHT):
-            for j in range(BOARD_WIDTH):
-                p = self.board[i][j]
-                if isinstance(p, General) and p.color == color:
-                    general_pos = (i, j)
-                    break
-            if general_pos:
-                break
-        
-        # Kiểm tra xem có quân nào của đối phương có thể ăn tướng không
-        if general_pos:
-            for i in range(BOARD_HEIGHT):
-                for j in range(BOARD_WIDTH):
-                    p = self.board[i][j]
-                    if p != 0 and p.color != color:
-                        if p.is_valid_move(self.board, (i, j), general_pos):
-                            causes_check = True
-                            break
-                break
-        
-        # Khôi phục trạng thái
-        self.board[from_row][from_col] = piece
-        self.board[to_row][to_col] = target
-        piece.position = (from_row, from_col)
-        
-        return causes_check
+        # Vẽ hình tròn với viền đỏ
+        pen = QPen(QColor(255, 0, 0))  # Viền đỏ
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)  # Không tô màu
+        painter.drawEllipse(QPoint(x, y), radius, radius)
     
-    def _save_move_state(self, from_row, from_col, to_row, to_col):
-        """Lưu trạng thái trước khi di chuyển (cho chức năng hoàn tác)"""
-        # Lưu bàn cờ hiện tại
-        board_copy = copy.deepcopy(self.board)
-        
-        # Lưu thông tin nước đi
-        move_info = {
-            'board': board_copy,
-            'from_pos': (from_row, from_col),
-            'to_pos': (to_row, to_col),
-            'captured': self.board[to_row][to_col] if self.board[to_row][to_col] != 0 else None,
-            'current_player': self.current_player,
-            'last_move_from': self.last_move_from,
-            'last_move_to': self.last_move_to
-        }
-        
-        # Thêm vào lịch sử
-        self.move_history.append(move_info)
-        
-        # Lưu quân bị bắt
-        if self.board[to_row][to_col] != 0:
-            captured = self.board[to_row][to_col]
-            self.captured_pieces.append(captured)
+    def mousePressEvent(self, event):
+        """Xử lý sự kiện click chuột"""
+        if event.button() == Qt.LeftButton and not self.game_over_state:
+            # Tính toán vị trí quân cờ dựa trên tọa độ chuột
+            col = round((event.x() - self.board_margin) / self.cell_size)
+            row = round((event.y() - self.board_margin) / self.cell_size)
+            
+            # Kiểm tra giới hạn bàn cờ
+            if 0 <= row < 10 and 0 <= col < 9:
+                # Kiểm tra xem có thể chọn quân cờ này không
+                if self.game_mode == "human_vs_ai" and self.current_player == BLACK:
+                    # Không cho phép chọn quân khi đến lượt AI
+                    return
+                
+                # Kiểm tra xem đã chọn quân cờ nào trước đó chưa
+                if self.selected_position is None:
+                    # Chưa chọn quân nào, kiểm tra xem ô này có quân cờ không
+                    if self.board[row][col] != 0 and self.board[row][col].color == self.current_player:
+                        # Chọn quân cờ
+                        self.selected_piece = self.board[row][col]
+                        self.selected_position = (row, col)
+                        self.update()
+                else:
+                    # Đã chọn quân, kiểm tra xem có thể di chuyển đến ô này không
+                    selected_row, selected_col = self.selected_position
+                    
+                    # Kiểm tra xem có chọn lại quân khác cùng màu không
+                    if (self.board[row][col] != 0 and 
+                        self.board[row][col].color == self.current_player):
+                        # Chọn quân mới
+                        self.selected_piece = self.board[row][col]
+                        self.selected_position = (row, col)
+                        self.update()
+                        return
+                    
+                    # Kiểm tra xem ô đích có hợp lệ không
+                    valid_moves = self.get_valid_moves(selected_row, selected_col)
+                    if (row, col) in valid_moves:
+                        # Di chuyển quân cờ
+                        move_success = self._make_move(selected_row, selected_col, row, col)
+                        
+                        # Bỏ chọn quân
+                        self.selected_piece = None
+                        self.selected_position = None
+                        
+                        # Cập nhật giao diện
+                        self.update()
+                        
+                        # Nếu thành công và ở chế độ AI, cho phép AI di chuyển
+                        if move_success and self.game_mode == "human_vs_ai" and self.current_player == BLACK:
+                            QTimer.singleShot(500, self.make_ai_move)
+                    else:
+                        # Hủy chọn nếu click vào ô không hợp lệ
+                        self.selected_piece = None
+                        self.selected_position = None
+                        self.update()
     
-    def undo_last_move(self):
-        """Hoàn tác nước đi cuối cùng"""
-        if not self.move_history:
-            return False
+    def get_valid_moves(self, row, col):
+        """Lấy danh sách các nước đi hợp lệ cho quân cờ tại vị trí (row, col)"""
+        if self.board[row][col] == 0 or self.board[row][col] == ' ':
+            return []
+            
+        piece = self.board[row][col]
+        valid_moves = []
         
-        # Lấy thông tin nước đi gần nhất
-        last_move = self.move_history.pop()
-        
-        # Khôi phục bàn cờ
-        self.board = last_move['board']
-        
-        # Khôi phục người chơi hiện tại
-        self.current_player = last_move['current_player']
-        
-        # Khôi phục đánh dấu nước đi cuối cùng
-        self.last_move_from = last_move['last_move_from']
-        self.last_move_to = last_move['last_move_to']
-        
-        # Nếu có quân bị bắt, xóa khỏi danh sách
-        if last_move['captured'] is not None and self.captured_pieces:
-            self.captured_pieces.pop()
-        
-        # Đặt lại các biến khác
-        self.selected_piece = None
-        self.selected_pos = None
-        self.valid_moves = []
-        
-        # Kiểm tra lại trạng thái chiếu tướng
-        self._check_for_check()
-        
-        # Cập nhật giao diện
-        self.update()
-        return True
+        # Lấy tất cả nước đi có thể
+        for to_row in range(10):
+            for to_col in range(9):
+                if self._is_valid_move(row, col, to_row, to_col):
+                    valid_moves.append((to_row, to_col))
+                    
+        return valid_moves
     
     def _is_valid_move(self, from_row, from_col, to_row, to_col):
         """Kiểm tra nước đi có hợp lệ không"""
@@ -610,22 +551,62 @@ class ChineseChessBoard(QWidget):
         # Kiểm tra nước đi có hợp lệ theo luật của từng loại quân cờ
         return piece.is_valid_move(self.board, (from_row, from_col), (to_row, to_col))
     
-    def _move_piece(self, from_row, from_col, to_row, to_col):
-        """Di chuyển quân cờ trên bàn cờ"""
+    def _make_move(self, from_row, from_col, to_row, to_col):
+        """Thực hiện nước đi từ (from_row, from_col) đến (to_row, to_col)"""
+        # Lấy quân cờ
         piece = self.board[from_row][from_col]
         
-        # Cập nhật vị trí mới cho quân cờ
-        piece.position = (to_row, to_col)
+        # Kiểm tra xem nước đi có hợp lệ không
+        if not self._is_valid_move(from_row, from_col, to_row, to_col):
+            return False
+            
+        # Kiểm tra xem có ăn quân không
+        captured_piece = None
+        is_capture = False
+        captured_piece_name = ""
         
-        # Di chuyển quân cờ
+        if self.board[to_row][to_col] != 0 and self.board[to_row][to_col] != ' ':
+            captured_piece = self.board[to_row][to_col]
+            is_capture = True
+            captured_piece_name = captured_piece.get_name()
+            
+            # Thêm quân bị bắt vào danh sách
+            self.captured_pieces.append(captured_piece)
+            
+            # Kiểm tra xem có phải tướng/general không - kết thúc game
+            if isinstance(captured_piece, General):
+                self.game_over_state = True
+                
+                # Phát tín hiệu game over
+                winner = "RED" if piece.color == RED else "BLACK"
+                self.game_over.emit(winner)
+                return True
+        
+        # Lưu trạng thái hiện tại để có thể hoàn tác
+        self.move_history.append({
+            'board': copy.deepcopy(self.board),
+            'current_player': self.current_player,
+            'red_in_check': self.red_in_check,
+            'black_in_check': self.black_in_check,
+            'from_pos': (from_row, from_col),
+            'to_pos': (to_row, to_col),
+            'captured_piece': captured_piece
+        })
+        
+        # Thực hiện di chuyển
         self.board[to_row][to_col] = piece
         self.board[from_row][from_col] = 0
         
-        # Kiểm tra xem có đang chiếu tướng không
+        # Chuyển lượt
+        self.current_player = BLACK if self.current_player == RED else RED
+        
+        # Kiểm tra xem có chiếu tướng không
         self._check_for_check()
         
-        # Cập nhật giao diện
-        self.update()
+        # Phát tín hiệu có nước đi
+        self.move_made.emit(piece.color, piece.get_name(), (from_row, from_col), (to_row, to_col), is_capture, captured_piece_name)
+        
+        return True
     
     def _check_for_check(self):
         """Kiểm tra xem tướng có đang bị chiếu không"""
@@ -676,12 +657,20 @@ class ChineseChessBoard(QWidget):
         if old_red_in_check != self.red_in_check:
             if self.red_in_check:
                 self.check_status_changed.emit(True, "Đỏ")
+                # Kiểm tra chiếu hết
+                if self._is_checkmate(RED):
+                    self.game_over_state = True
+                    self.game_over.emit("BLACK")  # Đen thắng vì Đỏ bị chiếu hết
             else:
                 self.check_status_changed.emit(False, "Đỏ")
         
         if old_black_in_check != self.black_in_check:
             if self.black_in_check:
                 self.check_status_changed.emit(True, "Đen")
+                # Kiểm tra chiếu hết
+                if self._is_checkmate(BLACK):
+                    self.game_over_state = True
+                    self.game_over.emit("RED")  # Đỏ thắng vì Đen bị chiếu hết
             else:
                 self.check_status_changed.emit(False, "Đen")
     
@@ -706,64 +695,32 @@ class ChineseChessBoard(QWidget):
     
     def make_ai_move(self):
         """Thực hiện nước đi của AI"""
-        if self.game_mode != "human_vs_ai" or self.game_over_state:
-            return
-
-        # Lấy nước đi từ AI
-        start_time = time.time()
-        best_move = self.ai.get_best_move(self.board, self.current_player, self.ai_level)
+        if self.game_over_state:
+            return False
+            
+        # Kiểm tra xem có phải lượt của AI không
+        if self.game_mode != "human_vs_ai" or self.current_player == RED:
+            return False
+            
+        # Tính toán nước đi tốt nhất
+        from_pos, to_pos = self.ai.get_best_move(self.board, self.current_player, self.ai_level)
         
-        # Kiểm tra xem có nước đi hợp lệ không
-        if best_move is None:
-            # Không có nước đi hợp lệ, có thể là bước vào trạng thái kết thúc
-            self.game_over_state = True
-            winner = "BLACK" if self.current_player == RED else "RED"
-            self.game_over.emit(winner)
+        if from_pos and to_pos:
+            from_row, from_col = from_pos
+            to_row, to_col = to_pos
+            
+            # Lưu nước đi gần nhất cho hiển thị
+            self.last_move = (from_pos, to_pos)
+            self.last_move_is_ai = True
+            
+            # Thực hiện nước đi
+            result = self._make_move(from_row, from_col, to_row, to_col)
+            
+            # Cập nhật và trả về kết quả
             self.update()
-            return
-            
-        start_pos, end_pos = best_move
+            return result
         
-        # Thực hiện nước đi
-        start_row, start_col = start_pos
-        end_row, end_col = end_pos
-        
-        # Lưu trạng thái trước khi di chuyển
-        self._save_move_state(start_row, start_col, end_row, end_col)
-        
-        # Kiểm tra xem có bắt được quân cờ không
-        captured_piece = None
-        if self.board[end_row][end_col] != 0:
-            captured_piece = self.board[end_row][end_col]
-            # Phát tín hiệu báo quân cờ bị bắt
-            self.piece_captured.emit(captured_piece)
-        
-        # Di chuyển quân cờ
-        self.board[end_row][end_col] = self.board[start_row][start_col]
-        self.board[start_row][start_col] = 0
-        
-        # Chuyển lượt chơi
-        self.current_player = RED if self.current_player == BLACK else BLACK
-        
-        # Kiểm tra tình trạng chiếu tướng
-        self._check_for_check()
-        
-        # Kiểm tra game kết thúc
-        result = self._check_game_over()
-        if result:
-            self.game_over_state = True
-            self.game_over.emit(result)
-            
-        # Cập nhật giao diện
-        self.update()
-            
-        # Thêm độ trễ để AI có vẻ như đang "suy nghĩ"
-        elapsed_time = time.time() - start_time
-        min_thinking_time = 1.0  # Thời gian suy nghĩ tối thiểu (giây)
-        
-        if elapsed_time < min_thinking_time:
-            delay = int((min_thinking_time - elapsed_time) * 1000)
-            QTimer.singleShot(delay, self.update)
+        return False
     
     def get_game_state(self):
         """Lấy trạng thái trò chơi hiện tại để lưu"""
@@ -832,9 +789,9 @@ class ChineseChessBoard(QWidget):
             
             # Đặt lại các biến khác
             self.selected_piece = None
-            self.selected_pos = None
-            self.last_move_from = None
-            self.last_move_to = None
+            self.selected_position = None
+            self.last_move = None
+            self.last_move_is_ai = False
             self.move_history = []
             self.captured_pieces = []
             self.valid_moves = []
@@ -845,3 +802,37 @@ class ChineseChessBoard(QWidget):
         except Exception as e:
             print(f"Lỗi khi thiết lập trạng thái trò chơi: {str(e)}")
             return False
+
+    def _is_checkmate(self, color):
+        """
+        Kiểm tra xem người chơi có bị chiếu hết không 
+        (không còn nước đi nào để thoát khỏi tình trạng chiếu tướng)
+        
+        Args:
+            color: Màu của người chơi cần kiểm tra
+            
+        Returns:
+            bool: True nếu bị chiếu hết, False nếu không
+        """
+        # Nếu không bị chiếu, không thể bị chiếu hết
+        if (color == RED and not self.red_in_check) or (color == BLACK and not self.black_in_check):
+            return False
+            
+        # Kiểm tra xem còn nước đi nào để thoát khỏi tình trạng chiếu tướng
+        for row in range(BOARD_HEIGHT):
+            for col in range(BOARD_WIDTH):
+                piece = self.board[row][col]
+                if piece != 0 and piece.color == color:
+                    # Tìm tất cả nước đi có thể của quân cờ này
+                    for to_row in range(BOARD_HEIGHT):
+                        for to_col in range(BOARD_WIDTH):
+                            if (to_row, to_col) != (row, col) and piece.is_valid_move(self.board, (row, col), (to_row, to_col)):
+                                # Thử đi nước này xem có thoát khỏi chiếu tướng không
+                                if self._move_resolves_check(row, col, to_row, to_col):
+                                    return False  # Có ít nhất một nước đi để thoát
+        
+        # Nếu không tìm thấy nước nào để thoát, đó là chiếu hết
+        return True
+
+    def _move_resolves_check(self, from_row, from_col, to_row, to_col):
+        """Kiểm tra xem nước đi có giải quyết được tình trạng chiếu tướng không"""

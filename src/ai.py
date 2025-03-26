@@ -508,11 +508,9 @@ class ChineseChessAI:
             for col in range(9):
                 piece = board[row][col]
                 if piece != 0 and piece != ' ':
-                    # Nếu là quân đỏ (RED = 'r')
-                    if player == 'r' and piece in '车马象士帅炮兵':
-                        player_pieces.append((row, col))
-                    # Nếu là quân đen (BLACK = 'b')
-                    elif player == 'b' and piece in '俥傌相仕将砲卒':
+                    # Kiểm tra màu sắc của quân cờ
+                    is_red = hasattr(piece.color, 'red') and piece.color.red() > 0
+                    if (player.red() > 0 and is_red) or (player.red() == 0 and not is_red):
                         player_pieces.append((row, col))
         
         # Trộn danh sách các quân cờ để tạo tính ngẫu nhiên
@@ -521,14 +519,17 @@ class ChineseChessAI:
         # Thử lần lượt mỗi quân cờ cho đến khi tìm được nước đi hợp lệ
         for start_pos in player_pieces:
             start_row, start_col = start_pos
+            piece = board[start_row][start_col]
             
             # Tạo danh sách các vị trí đích tiềm năng
             potential_end_positions = []
             for end_row in range(10):
                 for end_col in range(9):
                     # Kiểm tra xem nước đi có hợp lệ không
-                    if self._is_valid_move(board, start_row, start_col, end_row, end_col, player):
-                        potential_end_positions.append((end_row, end_col))
+                    if (end_row, end_col) != start_pos and piece.is_valid_move(board, start_pos, (end_row, end_col)):
+                        # Kiểm tra nước đi không gây ra tự chiếu tướng
+                        if not self._causes_self_check(board, start_row, start_col, end_row, end_col, player):
+                            potential_end_positions.append((end_row, end_col))
             
             # Nếu có vị trí đích hợp lệ, chọn ngẫu nhiên một vị trí
             if potential_end_positions:
@@ -537,6 +538,95 @@ class ChineseChessAI:
                 
         # Nếu không tìm thấy nước đi hợp lệ
         return None
+
+    def _is_valid_move(self, board, start_row, start_col, end_row, end_col, player):
+        """Kiểm tra nước đi có hợp lệ không"""
+        # Kiểm tra vị trí bắt đầu có quân cờ không
+        piece = board[start_row][start_col]
+        if piece == 0 or piece == ' ':
+            return False
+            
+        # Kiểm tra quân cờ có đúng màu không
+        is_red = hasattr(piece.color, 'red') and piece.color.red() > 0
+        if (player.red() > 0 and not is_red) or (player.red() == 0 and is_red):
+            return False
+            
+        # Kiểm tra nước đi có hợp lệ theo luật chơi không
+        if not piece.is_valid_move(board, (start_row, start_col), (end_row, end_col)):
+            return False
+            
+        # Kiểm tra nước đi không gây ra tự chiếu tướng
+        return not self._causes_self_check(board, start_row, start_col, end_row, end_col, player)
+        
+    def _causes_self_check(self, board, start_row, start_col, end_row, end_col, player):
+        """Kiểm tra nước đi có gây ra tự chiếu tướng không"""
+        # Lưu trạng thái hiện tại
+        piece = board[start_row][start_col]
+        target = board[end_row][end_col]
+        
+        # Thực hiện nước đi tạm thời
+        board[end_row][end_col] = piece
+        board[start_row][start_col] = 0
+        original_position = piece.position
+        piece.position = (end_row, end_col)
+        
+        # Kiểm tra tướng có bị chiếu không
+        is_check = self._is_in_check(board, player)
+        
+        # Khôi phục trạng thái ban đầu
+        board[start_row][start_col] = piece
+        board[end_row][end_col] = target
+        piece.position = original_position
+        
+        return is_check
+        
+    def _is_in_check(self, board, player):
+        """Kiểm tra một người chơi có đang bị chiếu tướng không"""
+        # Tìm vị trí tướng
+        general_pos = None
+        for row in range(10):
+            for col in range(9):
+                piece = board[row][col]
+                if piece != 0 and piece != ' ' and hasattr(piece, '__class__'):
+                    is_red = hasattr(piece.color, 'red') and piece.color.red() > 0
+                    if piece.__class__.__name__ == "General" and ((player.red() > 0 and is_red) or (player.red() == 0 and not is_red)):
+                        general_pos = (row, col)
+                        break
+            if general_pos:
+                break
+        
+        # Nếu không tìm thấy tướng, trả về True (giả định là đã thua)
+        if not general_pos:
+            return True
+        
+        # Tìm một đối tượng quân cờ để lấy lớp màu sắc
+        color_class = None
+        for row in range(10):
+            for col in range(9):
+                piece = board[row][col]
+                if piece != 0 and piece != ' ' and hasattr(piece, 'color') and hasattr(piece.color, '__class__'):
+                    color_class = piece.color.__class__
+                    break
+            if color_class:
+                break
+                
+        # Nếu không tìm được lớp màu sắc, trả về False
+        if not color_class:
+            return False
+            
+        # Tạo đối tượng màu đối thủ
+        opponent_color = color_class(0, 0, 0) if player.red() > 0 else color_class(255, 0, 0)
+        
+        # Kiểm tra xem có quân nào của đối phương có thể ăn tướng không
+        for row in range(10):
+            for col in range(9):
+                piece = board[row][col]
+                if piece != 0 and piece != ' ' and hasattr(piece, 'color'):
+                    is_opponent = (player.red() > 0 and piece.color.red() == 0) or (player.red() == 0 and piece.color.red() > 0)
+                    if is_opponent and piece.is_valid_move(board, (row, col), general_pos):
+                        return True
+        
+        return False
         
     def _get_minimax_move(self, board, player, depth):
         """Sử dụng thuật toán minimax với cắt tỉa alpha-beta để tìm nước đi tốt nhất"""
@@ -609,21 +699,45 @@ class ChineseChessAI:
         for row in range(10):
             for col in range(9):
                 piece = board[row][col]
-                if piece != 0 and piece != ' ':
-                    # Quân đỏ
-                    if piece in '车马象士帅炮兵':
-                        value = self.piece_values.get(piece, 0)
-                        if player == 'r':  # Nếu player là RED
-                            score += value
+                if piece != 0 and piece != ' ' and hasattr(piece, '__class__'):
+                    piece_type = piece.__class__.__name__
+                    is_red = hasattr(piece.color, 'red') and piece.color.red() > 0
+                    
+                    # Lấy giá trị cơ bản của quân cờ
+                    value = 0
+                    if piece_type == "General":
+                        value = 10000
+                    elif piece_type == "Advisor":
+                        value = 200
+                    elif piece_type == "Elephant":
+                        value = 200
+                    elif piece_type == "Horse":
+                        value = 450
+                    elif piece_type == "Chariot":
+                        value = 900
+                    elif piece_type == "Cannon":
+                        value = 450
+                    elif piece_type == "Soldier":
+                        # Tốt qua sông giá trị tăng lên
+                        if (is_red and row < 5) or (not is_red and row > 4):
+                            value = 200
                         else:
-                            score -= value
-                    # Quân đen
-                    elif piece in '俥傌相仕将砲卒':
-                        value = self.piece_values.get(piece, 0)
-                        if player == 'b':  # Nếu player là BLACK
-                            score += value
+                            value = 100
+                    
+                    # Thêm giá trị vị trí nếu có
+                    if piece_type in POSITION_VALUES:
+                        # Với quân đen, đảo ngược bảng vị trí
+                        if is_red:
+                            position_value = POSITION_VALUES[piece_type][row][col]
                         else:
-                            score -= value
+                            position_value = POSITION_VALUES[piece_type][9-row][col]
+                        value += position_value * 10  # Nhân 10 để tăng tầm quan trọng của vị trí
+                    
+                    # Cộng hoặc trừ giá trị tùy thuộc vào màu quân cờ
+                    if (player.red() > 0 and is_red) or (player.red() == 0 and not is_red):
+                        score += value
+                    else:
+                        score -= value
                             
         return score
         
@@ -634,42 +748,28 @@ class ChineseChessAI:
         for start_row in range(10):
             for start_col in range(9):
                 piece = board[start_row][start_col]
-                if piece != 0 and piece != ' ':
+                if piece != 0 and piece != ' ' and hasattr(piece, 'color'):
                     # Kiểm tra xem quân cờ có thuộc về người chơi hiện tại không
-                    if (player == 'r' and piece in '车马象士帅炮兵') or \
-                       (player == 'b' and piece in '俥傌相仕将砲卒'):
+                    is_player_piece = (player.red() > 0 and piece.color.red() > 0) or (player.red() == 0 and piece.color.red() == 0)
+                    
+                    if is_player_piece:
                         # Tìm các vị trí đích hợp lệ
                         for end_row in range(10):
                             for end_col in range(9):
-                                if self._is_valid_move(board, start_row, start_col, end_row, end_col, player):
-                                    valid_moves.append(((start_row, start_col), (end_row, end_col)))
+                                if (end_row, end_col) != (start_row, start_col) and piece.is_valid_move(board, (start_row, start_col), (end_row, end_col)):
+                                    # Kiểm tra nước đi không gây ra tự chiếu tướng
+                                    if not self._causes_self_check(board, start_row, start_col, end_row, end_col, player):
+                                        valid_moves.append(((start_row, start_col), (end_row, end_col)))
                                     
         return valid_moves
-        
-    def _is_valid_move(self, board, start_row, start_col, end_row, end_col, player):
-        """Kiểm tra xem nước đi có hợp lệ không"""
-        # TODO: Implement các quy tắc di chuyển cho từng loại quân cờ
-        # Đây chỉ là phiên bản giản lược, cần được thay thế bằng quy tắc đầy đủ
-        
-        # Kiểm tra cơ bản: không thể di chuyển ngoài bàn cờ hoặc không di chuyển
-        if not (0 <= end_row < 10 and 0 <= end_col < 9) or (start_row == end_row and start_col == end_col):
-            return False
-            
-        # Kiểm tra xem có di chuyển đến ô có quân cờ của chính mình không
-        end_piece = board[end_row][end_col]
-        if end_piece != 0 and end_piece != ' ':
-            if player == 'r' and end_piece in '车马象士帅炮兵':
-                return False
-            if player == 'b' and end_piece in '俥傌相仕将砲卒':
-                return False
-                
-        # TODO: Add validation for specific piece movement rules
-        return True
         
     def _make_move_on_copy(self, board, start_pos, end_pos):
         """Tạo bản sao của bàn cờ và thực hiện nước đi"""
         import copy
+        
+        # Tạo bản sao sâu của bàn cờ
         board_copy = copy.deepcopy(board)
+        
         start_row, start_col = start_pos
         end_row, end_col = end_pos
         
@@ -677,23 +777,38 @@ class ChineseChessAI:
         board_copy[end_row][end_col] = board_copy[start_row][start_col]
         board_copy[start_row][start_col] = 0
         
+        # Cập nhật vị trí của quân cờ
+        board_copy[end_row][end_col].position = (end_row, end_col)
+        
         return board_copy
-        
-    def _is_game_over(self, board):
-        """Kiểm tra xem trò chơi đã kết thúc chưa (thiếu tướng)"""
-        has_red_king = False
-        has_black_king = False
-        
-        for row in range(10):
-            for col in range(9):
-                piece = board[row][col]
-                if piece == '帅':
-                    has_red_king = True
-                elif piece == '将':
-                    has_black_king = True
-                    
-        return not (has_red_king and has_black_king)
         
     def _get_opponent(self, player):
         """Trả về đối thủ của người chơi"""
-        return 'b' if player == 'r' else 'r'
+        if player.red() > 0:
+            # Nếu player là RED, trả về BLACK
+            return player.__class__(0, 0, 0)  # Màu đen
+        else:
+            # Nếu player là BLACK, trả về RED
+            return player.__class__(255, 0, 0)  # Màu đỏ
+            
+    def _is_game_over(self, board):
+        """Kiểm tra xem trò chơi đã kết thúc chưa (một trong hai tướng bị bắt)"""
+        red_general_exists = False
+        black_general_exists = False
+        
+        # Kiểm tra xem cả hai tướng có còn trên bàn cờ không
+        for row in range(10):
+            for col in range(9):
+                piece = board[row][col]
+                if piece != 0 and piece != ' ' and hasattr(piece, '__class__'):
+                    if piece.__class__.__name__ == "General":
+                        if hasattr(piece.color, 'red') and piece.color.red() > 0:
+                            red_general_exists = True
+                        else:
+                            black_general_exists = True
+                        
+                        if red_general_exists and black_general_exists:
+                            return False  # Trò chơi chưa kết thúc
+        
+        # Nếu một trong hai tướng không còn, trò chơi kết thúc
+        return True

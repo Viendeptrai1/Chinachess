@@ -1,0 +1,341 @@
+{
+    "board_state": [
+        [
+            {
+                "type": "Chariot",
+                "color": "black",
+                "position": [
+                    0,
+                    0
+                ]
+            },
+            null,
+            {
+                "type": "Elephant",
+                "color": "black",
+                "position": [
+                    0,
+                    2
+                ]
+            },
+            {
+                "type": "Advisor",
+                "color": "black",
+                "position": [
+                    0,
+                    3
+                ]
+            },
+            {
+                "type": "General",
+                "color": "black",
+                "position": [
+                    0,
+                    4
+                ]
+            },
+            {
+                "type": "Advisor",
+                "color": "black",
+                "position": [
+                    0,
+                    5
+                ]
+            },
+            {
+                "type": "Elephant",
+                "color": "black",
+                "position": [
+                    0,
+                    6
+                ]
+            },
+            {
+                "type": "Horse",
+                "color": "black",
+                "position": [
+                    0,
+                    7
+                ]
+            },
+            {
+                "type": "Chariot",
+                "color": "black",
+                "position": [
+                    0,
+                    8
+                ]
+            }
+        ],
+        [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            null,
+            null,
+            {
+                "type": "Horse",
+                "color": "black",
+                "position": [
+                    0,
+                    1
+                ]
+            },
+            null,
+            null,
+            null,
+            null,
+            {
+                "type": "Cannon",
+                "color": "black",
+                "position": [
+                    2,
+                    7
+                ]
+            },
+            null
+        ],
+        [
+            {
+                "type": "Soldier",
+                "color": "black",
+                "position": [
+                    3,
+                    0
+                ]
+            },
+            null,
+            {
+                "type": "Soldier",
+                "color": "black",
+                "position": [
+                    3,
+                    2
+                ]
+            },
+            null,
+            {
+                "type": "Soldier",
+                "color": "black",
+                "position": [
+                    3,
+                    4
+                ]
+            },
+            null,
+            {
+                "type": "Soldier",
+                "color": "black",
+                "position": [
+                    3,
+                    6
+                ]
+            },
+            null,
+            {
+                "type": "Soldier",
+                "color": "black",
+                "position": [
+                    3,
+                    8
+                ]
+            }
+        ],
+        [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            {
+                "type": "Soldier",
+                "color": "red",
+                "position": [
+                    6,
+                    6
+                ]
+            },
+            null,
+            null
+        ],
+        [
+            {
+                "type": "Soldier",
+                "color": "red",
+                "position": [
+                    6,
+                    0
+                ]
+            },
+            {
+                "type": "Cannon",
+                "color": "black",
+                "position": [
+                    2,
+                    1
+                ]
+            },
+            {
+                "type": "Soldier",
+                "color": "red",
+                "position": [
+                    6,
+                    2
+                ]
+            },
+            null,
+            {
+                "type": "Soldier",
+                "color": "red",
+                "position": [
+                    6,
+                    4
+                ]
+            },
+            null,
+            null,
+            null,
+            {
+                "type": "Soldier",
+                "color": "red",
+                "position": [
+                    6,
+                    8
+                ]
+            }
+        ],
+        [
+            null,
+            {
+                "type": "Cannon",
+                "color": "red",
+                "position": [
+                    7,
+                    1
+                ]
+            },
+            null,
+            null,
+            {
+                "type": "Cannon",
+                "color": "red",
+                "position": [
+                    7,
+                    7
+                ]
+            },
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ],
+        [
+            {
+                "type": "Chariot",
+                "color": "red",
+                "position": [
+                    9,
+                    0
+                ]
+            },
+            {
+                "type": "Horse",
+                "color": "red",
+                "position": [
+                    9,
+                    1
+                ]
+            },
+            {
+                "type": "Elephant",
+                "color": "red",
+                "position": [
+                    9,
+                    2
+                ]
+            },
+            {
+                "type": "Advisor",
+                "color": "red",
+                "position": [
+                    9,
+                    3
+                ]
+            },
+            {
+                "type": "General",
+                "color": "red",
+                "position": [
+                    9,
+                    4
+                ]
+            },
+            {
+                "type": "Advisor",
+                "color": "red",
+                "position": [
+                    9,
+                    5
+                ]
+            },
+            {
+                "type": "Elephant",
+                "color": "red",
+                "position": [
+                    9,
+                    6
+                ]
+            },
+            {
+                "type": "Horse",
+                "color": "red",
+                "position": [
+                    9,
+                    7
+                ]
+            },
+            {
+                "type": "Chariot",
+                "color": "red",
+                "position": [
+                    9,
+                    8
+                ]
+            }
+        ]
+    ],
+    "current_player": "red",
+    "game_mode": "human_vs_ai",
+    "ai_level": "medium"
+}

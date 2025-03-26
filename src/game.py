@@ -49,6 +49,7 @@ class ChineseChessGame(QMainWindow):
         self.chess_board = ChineseChessBoard()
         self.chess_board.move_made.connect(self._on_move_made)
         self.chess_board.check_status_changed.connect(self._on_check_status_changed)
+        self.chess_board.game_over.connect(self._on_game_over)
         
         # Tạo layout chính
         central_widget = QWidget()
@@ -85,6 +86,13 @@ class ChineseChessGame(QMainWindow):
         """Tạo panel hiển thị thông tin lượt chơi"""
         info_group = QGroupBox("Thông tin trò chơi")
         info_layout = QVBoxLayout(info_group)
+        
+        # Hiển thị chế độ chơi
+        mode_text = "Người vs Người" if self.game_mode == "human_vs_human" else "Người vs Máy"
+        self.mode_label = QLabel(f"Chế độ: {mode_text}")
+        self.mode_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.mode_label.setAlignment(Qt.AlignCenter)
+        info_layout.addWidget(self.mode_label)
         
         # Nhãn trạng thái hiện tại
         self.status_label = QLabel("Lượt: Đỏ")
@@ -140,15 +148,15 @@ class ChineseChessGame(QMainWindow):
         save_btn.clicked.connect(self._save_game)
         controls_layout.addWidget(save_btn)
         
-        # Nút tải trò chơi
-        load_btn = QPushButton("Tải trò chơi")
-        load_btn.clicked.connect(self._load_game)
-        controls_layout.addWidget(load_btn)
-        
         # Nút bật/tắt âm thanh
         self.sound_btn = QPushButton("Tắt âm thanh" if self.audio_enabled else "Bật âm thanh")
         self.sound_btn.clicked.connect(self._toggle_sound)
         controls_layout.addWidget(self.sound_btn)
+        
+        # Nút trở về menu
+        back_to_menu_btn = QPushButton("Trở về Menu")
+        back_to_menu_btn.clicked.connect(self._back_to_menu)
+        controls_layout.addWidget(back_to_menu_btn)
         
         # Thêm panel vào layout chính
         parent_layout.addWidget(controls_group)
@@ -158,32 +166,18 @@ class ChineseChessGame(QMainWindow):
         settings_group = QGroupBox("Cài đặt")
         settings_layout = QVBoxLayout(settings_group)
         
-        # Chế độ chơi
-        mode_group = QGroupBox("Chế độ chơi")
-        mode_layout = QVBoxLayout(mode_group)
-        
-        self.mode_human_radio = QRadioButton("Người vs Người")
-        self.mode_human_radio.setChecked(self.game_mode == "human_vs_human")
-        self.mode_human_radio.toggled.connect(lambda: self._change_game_mode("human_vs_human"))
-        
-        self.mode_ai_radio = QRadioButton("Người vs Máy")
-        self.mode_ai_radio.setChecked(self.game_mode == "human_vs_ai")
-        self.mode_ai_radio.toggled.connect(lambda: self._change_game_mode("human_vs_ai"))
-        
-        mode_layout.addWidget(self.mode_human_radio)
-        mode_layout.addWidget(self.mode_ai_radio)
-        settings_layout.addWidget(mode_group)
-        
-        # Cấp độ AI
-        ai_group = QGroupBox("Cấp độ AI")
-        ai_layout = QVBoxLayout(ai_group)
-        
-        self.ai_level_combo = QComboBox()
-        self.ai_level_combo.addItems(["Dễ", "Trung bình", "Khó"])
-        self.ai_level_combo.setCurrentIndex(1)  # Mặc định là trung bình
-        self.ai_level_combo.currentIndexChanged.connect(self._change_ai_level)
-        ai_layout.addWidget(self.ai_level_combo)
-        settings_layout.addWidget(ai_group)
+        # Chỉ giữ lại phần cấp độ AI nếu chế độ chơi là người vs máy
+        if self.game_mode == "human_vs_ai":
+            # Cấp độ AI
+            ai_group = QGroupBox("Cấp độ AI")
+            ai_layout = QVBoxLayout(ai_group)
+            
+            self.ai_level_combo = QComboBox()
+            self.ai_level_combo.addItems(["Dễ", "Trung bình", "Khó"])
+            self.ai_level_combo.setCurrentIndex(1)  # Mặc định là trung bình
+            self.ai_level_combo.currentIndexChanged.connect(self._change_ai_level)
+            ai_layout.addWidget(self.ai_level_combo)
+            settings_layout.addWidget(ai_group)
         
         # Thêm panel vào layout chính
         parent_layout.addWidget(settings_group)
@@ -198,35 +192,62 @@ class ChineseChessGame(QMainWindow):
         # Menu trò chơi
         game_menu = menu_bar.addMenu("Trò chơi")
         
-        # Trò chơi mới
-        new_action = QAction("Trò chơi mới", self)
-        new_action.triggered.connect(self._new_game)
-        game_menu.addAction(new_action)
+        # Hành động trò chơi mới
+        new_game_action = QAction("Trò chơi mới", self)
+        new_game_action.triggered.connect(self._new_game)
+        game_menu.addAction(new_game_action)
         
-        # Lưu trò chơi
+        # Hành động hoàn tác
+        undo_action = QAction("Hoàn tác nước đi", self)
+        undo_action.triggered.connect(self._undo_move)
+        game_menu.addAction(undo_action)
+        
+        # Hành động lưu trò chơi
         save_action = QAction("Lưu trò chơi", self)
         save_action.triggered.connect(self._save_game)
         game_menu.addAction(save_action)
         
-        # Tải trò chơi
-        load_action = QAction("Tải trò chơi", self)
-        load_action.triggered.connect(self._load_game)
-        game_menu.addAction(load_action)
-        
+        # Thêm separator
         game_menu.addSeparator()
         
-        # Thoát
+        # Hành động trở về menu
+        back_to_menu_action = QAction("Trở về Menu chính", self)
+        back_to_menu_action.triggered.connect(self._back_to_menu)
+        game_menu.addAction(back_to_menu_action)
+        
+        # Thêm separator
+        game_menu.addSeparator()
+        
+        # Hành động thoát
         exit_action = QAction("Thoát", self)
         exit_action.triggered.connect(self.close)
         game_menu.addAction(exit_action)
         
-        # Menu Chỉnh sửa
-        edit_menu = menu_bar.addMenu("Chỉnh sửa")
+        # Menu cài đặt
+        settings_menu = menu_bar.addMenu("Cài đặt")
         
-        # Hoàn tác
-        undo_action = QAction("Hoàn tác nước đi", self)
-        undo_action.triggered.connect(self._undo_move)
-        edit_menu.addAction(undo_action)
+        # Hành động bật/tắt âm thanh
+        sound_action = QAction("Tắt âm thanh" if self.audio_enabled else "Bật âm thanh", self)
+        sound_action.triggered.connect(self._toggle_sound)
+        settings_menu.addAction(sound_action)
+        
+        # Chỉ hiển thị submenu cấp độ AI nếu chế độ là người vs máy
+        if self.game_mode == "human_vs_ai":
+            # Submenu cấp độ AI
+            ai_level_menu = settings_menu.addMenu("Cấp độ AI")
+            
+            # Các cấp độ AI
+            easy_action = QAction("Dễ", self)
+            easy_action.triggered.connect(lambda: self._change_ai_level(0))
+            ai_level_menu.addAction(easy_action)
+            
+            medium_action = QAction("Trung bình", self)
+            medium_action.triggered.connect(lambda: self._change_ai_level(1))
+            ai_level_menu.addAction(medium_action)
+            
+            hard_action = QAction("Khó", self)
+            hard_action.triggered.connect(lambda: self._change_ai_level(2))
+            ai_level_menu.addAction(hard_action)
         
         # Menu Trợ giúp
         help_menu = menu_bar.addMenu("Trợ giúp")
@@ -242,31 +263,14 @@ class ChineseChessGame(QMainWindow):
         help_menu.addAction(about_action)
     
     def _new_game(self):
-        """Bắt đầu trò chơi mới"""
-        reply = QMessageBox.question(self, "Trò chơi mới", 
-                                     "Bạn có chắc chắn muốn bắt đầu trò chơi mới không?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.chess_board.reset_board()
-            self._update_status()
-            self.statusBar.showMessage("Trò chơi mới bắt đầu. Lượt của quân Đỏ.")
-            
-            # Xóa tất cả quân bị bắt
-            self._clear_captured_display()
-    
-    def _change_game_mode(self, mode):
-        """Thay đổi chế độ chơi"""
-        if self.game_mode != mode:
-            self.game_mode = mode
-            self.chess_board.set_game_mode(mode)
-            
-            message = "Đã chuyển sang chế độ: Người đấu với người" if mode == "human_vs_human" else "Đã chuyển sang chế độ: Người đấu với máy"
-            self.statusBar.showMessage(message)
-            
-            # Nếu chuyển sang chế độ chơi với máy và đang là lượt của máy (quân đen)
-            if mode == "human_vs_ai" and self.chess_board.current_player == BLACK:
-                # Cho AI đi ngay lập tức
-                self.chess_board._make_ai_move()
+        """Bắt đầu trò chơi mới - không cần xác nhận nữa"""
+        # Thiết lập trò chơi mới trực tiếp, không cần xác nhận
+        self.chess_board.reset_board()
+        self._update_status()
+        self.statusBar.showMessage("Trò chơi mới bắt đầu. Lượt của quân Đỏ.")
+        
+        # Xóa tất cả quân bị bắt
+        self._clear_captured_display()
     
     def _change_ai_level(self, index):
         """Thay đổi cấp độ AI"""
@@ -306,36 +310,6 @@ class ChineseChessGame(QMainWindow):
                 self.statusBar.showMessage(f"Đã lưu trò chơi vào {file_name}")
             except Exception as e:
                 QMessageBox.critical(self, "Lỗi", f"Không thể lưu trò chơi: {str(e)}")
-    
-    def _load_game(self):
-        """Tải trạng thái trò chơi"""
-        file_name, _ = QFileDialog.getOpenFileName(self, "Tải trò chơi", "", "Tệp Cờ Tướng (*.chess);;Tất cả tệp (*)")
-        if file_name:
-            try:
-                with open(file_name, 'r', encoding='utf-8') as f:
-                    game_state = json.load(f)
-                success = self.chess_board.set_game_state(game_state)
-                if success:
-                    self._update_status()
-                    
-                    # Cập nhật chế độ chơi trong UI
-                    self.game_mode = game_state.get('game_mode', 'human_vs_human')
-                    self.mode_human_radio.setChecked(self.game_mode == 'human_vs_human')
-                    self.mode_ai_radio.setChecked(self.game_mode == 'human_vs_ai')
-                    
-                    # Cập nhật cấp độ AI trong UI
-                    ai_level = game_state.get('ai_level', 'medium')
-                    level_index = {"easy": 0, "medium": 1, "hard": 2}.get(ai_level, 1)
-                    self.ai_level_combo.setCurrentIndex(level_index)
-                    
-                    # Xóa hiển thị quân bị bắt (sẽ được cập nhật khi có nước đi mới)
-                    self._clear_captured_display()
-                    
-                    self.statusBar.showMessage(f"Đã tải trò chơi từ {file_name}")
-                else:
-                    QMessageBox.warning(self, "Cảnh báo", "Không thể tải trò chơi. Định dạng không hợp lệ.")
-            except Exception as e:
-                QMessageBox.critical(self, "Lỗi", f"Không thể tải trò chơi: {str(e)}")
     
     def _toggle_sound(self):
         """Bật/tắt âm thanh"""
@@ -494,6 +468,85 @@ class ChineseChessGame(QMainWindow):
             label = QLabel(piece.get_name())
             label.setStyleSheet("color: black; font-size: 14px;")
             self.black_captured_layout.addWidget(label, i // 3, i % 3)
+
+    def set_game_mode(self, mode):
+        """Thiết lập chế độ chơi"""
+        if self.game_mode != mode:
+            # Gán trực tiếp, không cập nhật giao diện để tránh đệ quy
+            self.game_mode = mode
+            self.chess_board.set_game_mode(mode)
+            
+            # Cập nhật nhãn chế độ chơi
+            if hasattr(self, 'mode_label'):
+                mode_text = "Người vs Người" if mode == "human_vs_human" else "Người vs Máy"
+                self.mode_label.setText(f"Chế độ: {mode_text}")
+            
+            # Lưu ý: KHÔNG cập nhật giao diện tại đây để tránh đệ quy vô hạn
+
+    def set_ai_level(self, level):
+        """Thiết lập cấp độ AI"""
+        self.ai_level = level
+        self.chess_board.set_ai_level(level)
+        
+        # Cập nhật giao diện
+        if hasattr(self, 'ai_level_combo'):
+            if level == "easy":
+                self.ai_level_combo.setCurrentIndex(0)
+            elif level == "medium":
+                self.ai_level_combo.setCurrentIndex(1)
+            else:  # hard
+                self.ai_level_combo.setCurrentIndex(2)
+                
+    def _on_game_over(self, result):
+        """Xử lý khi trò chơi kết thúc"""
+        message = ""
+        title = "Trò chơi kết thúc"
+        
+        if result == "RED":
+            message = "Quân Đỏ đã thắng!"
+            # Cập nhật nhãn trạng thái
+            self.status_label.setText("Kết quả: Đỏ thắng")
+            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+        elif result == "BLACK":
+            message = "Quân Đen đã thắng!"
+            # Cập nhật nhãn trạng thái
+            self.status_label.setText("Kết quả: Đen thắng")
+            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: black;")
+        else:
+            message = "Trò chơi kết thúc hòa!"
+            # Cập nhật nhãn trạng thái
+            self.status_label.setText("Kết quả: Hòa")
+            self.status_label.setStyleSheet("font-size: 16px; font-weight: bold; color: blue;")
+        
+        # Kiểm tra xem có phải kết thúc do chiếu hết không
+        if self.chess_board.red_in_check and result == "BLACK":
+            message += "\nQuân Đỏ bị chiếu hết!"
+            title = "Chiếu hết!"
+        elif self.chess_board.black_in_check and result == "RED":
+            message += "\nQuân Đen bị chiếu hết!"
+            title = "Chiếu hết!"
+        
+        # Hiển thị hộp thoại thông báo
+        QMessageBox.information(self, title, message)
+        
+        # Cập nhật thanh trạng thái
+        self.statusBar.showMessage(f"Trò chơi kết thúc. {message}")
+
+    def _back_to_menu(self):
+        """Trở về màn hình menu chính"""
+        # Hiển thị xác nhận nếu trò chơi chưa kết thúc
+        if not self.chess_board.game_over_state:
+            reply = QMessageBox.question(self, 'Xác nhận', 
+                                          'Bạn có chắc muốn trở về menu? Tiến độ trò chơi hiện tại sẽ bị mất.',
+                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+                
+        # Import lại để tránh import vòng
+        from menu import ChineseChessMenu
+        self.menu = ChineseChessMenu()
+        self.menu.show()
+        self.close()
 
 def main():
     """Hàm chính chạy trò chơi"""
