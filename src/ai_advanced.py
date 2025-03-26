@@ -4,7 +4,7 @@
 import numpy as np
 import random
 import time
-from collections import deque
+from collections import deque, defaultdict
 import heapq
 from pieces import General, Advisor, Elephant, Horse, Chariot, Cannon, Soldier
 
@@ -23,6 +23,14 @@ PIECE_VALUES = {
     "Soldier": 100,    # Tốt
     # Sau khi tốt qua sông giá trị tăng lên
     "AdvancedSoldier": 200,
+}
+
+# Trọng số cho các tính năng đánh giá
+FEATURE_WEIGHTS = {
+    "piece_value": 100,        # Giá trị quân cờ
+    "mobility": 2,             # Khả năng di chuyển
+    "king_safety": 5,          # An toàn của tướng
+    "pawn_advancement": 3,     # Tiến triển của tốt
 }
 
 # Bảng vị trí cho từng loại quân, thể hiện giá trị của quân khi ở các vị trí khác nhau

@@ -647,8 +647,8 @@ class ChineseChessBoard(QWidget):
         if old_red_in_check != self.red_in_check:
             if self.red_in_check:
                 self.check_status_changed.emit(True, "Đỏ")
-                # Kiểm tra chiếu hết
-                if self._is_checkmate(RED):
+                # Chỉ kiểm tra chiếu hết nếu đang là lượt của quân Đỏ
+                if self.current_player == RED and self._is_checkmate(RED):
                     self.game_over_state = True
                     self.game_over.emit("BLACK")  # Đen thắng vì Đỏ bị chiếu hết
             else:
@@ -657,8 +657,8 @@ class ChineseChessBoard(QWidget):
         if old_black_in_check != self.black_in_check:
             if self.black_in_check:
                 self.check_status_changed.emit(True, "Đen")
-                # Kiểm tra chiếu hết
-                if self._is_checkmate(BLACK):
+                # Chỉ kiểm tra chiếu hết nếu đang là lượt của quân Đen
+                if self.current_player == BLACK and self._is_checkmate(BLACK):
                     self.game_over_state = True
                     self.game_over.emit("RED")  # Đỏ thắng vì Đen bị chiếu hết
             else:
@@ -831,3 +831,32 @@ class ChineseChessBoard(QWidget):
 
     def _move_resolves_check(self, from_row, from_col, to_row, to_col):
         """Kiểm tra xem nước đi có giải quyết được tình trạng chiếu tướng không"""
+        # Lưu trạng thái hiện tại
+        original_board = copy.deepcopy(self.board)
+        original_red_in_check = self.red_in_check
+        original_black_in_check = self.black_in_check
+        
+        # Thử thực hiện nước đi
+        piece = self.board[from_row][from_col]
+        captured_piece = self.board[to_row][to_col]
+        
+        # Di chuyển quân cờ
+        self.board[to_row][to_col] = piece
+        self.board[from_row][from_col] = 0
+        
+        # Kiểm tra lại tình trạng chiếu tướng
+        self._check_for_check()
+        
+        # Kiểm tra xem còn bị chiếu không
+        resolved = False
+        if piece.color == RED:
+            resolved = not self.red_in_check
+        else:
+            resolved = not self.black_in_check
+        
+        # Khôi phục trạng thái ban đầu
+        self.board = original_board
+        self.red_in_check = original_red_in_check
+        self.black_in_check = original_black_in_check
+        
+        return resolved
