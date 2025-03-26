@@ -335,20 +335,20 @@ class ChineseChessBoard(QWidget):
         
         # Thiết lập bút vẽ
         pen = QPen()
-        pen.setColor(QColor(150, 50, 255, 200))  # Màu tím nhạt với độ trong suốt
+        pen.setColor(QColor(0, 120, 215, 200))  # Màu xanh dương đẹp với độ trong suốt
         pen.setWidth(3)
-        pen.setStyle(Qt.DotLine)  # Kiểu đường đứt nét
         painter.setPen(pen)
         
         # Vẽ đường nối từ vị trí đi đến vị trí đến
         painter.drawLine(from_x, from_y, to_x, to_y)
         
-        # Vẽ hình tròn nhỏ tại vị trí đi
-        painter.setBrush(QBrush(QColor(150, 50, 255, 200)))
-        painter.drawEllipse(QPoint(from_x, from_y), 8, 8)
+        # Vẽ hình tròn ở vị trí xuất phát
+        painter.setBrush(QBrush(QColor(0, 120, 215, 150)))
+        painter.drawEllipse(QPoint(from_x, from_y), 10, 10)
         
-        # Vẽ hình tròn lớn hơn tại vị trí đến
-        painter.drawEllipse(QPoint(to_x, to_y), 12, 12)
+        # Vẽ hình tròn lớn hơn ở vị trí đến
+        painter.setBrush(QBrush(QColor(0, 120, 215, 200)))
+        painter.drawEllipse(QPoint(to_x, to_y), 14, 14)
     
     def _draw_valid_moves(self, painter):
         """Vẽ các vị trí hợp lệ có thể di chuyển đến"""
@@ -441,20 +441,6 @@ class ChineseChessBoard(QWidget):
         # Vẽ tên
         painter.drawText(QRect(x - radius, y - radius, radius * 2, radius * 2),
                         Qt.AlignCenter, piece.get_name())
-        
-        # Nếu đây là nước đi cuối của AI, vẽ đánh dấu đặc biệt
-        if self.last_move_is_ai and self.last_move and self.last_move[1] == (row, col):
-            # Vẽ một vòng tròn đỏ nhỏ xung quanh quân cờ
-            painter.save()
-            pen = QPen(QColor(255, 0, 0))  # Màu đỏ
-            pen.setWidth(3)
-            painter.setPen(pen)
-            expand = 8  # Kích thước mở rộng so với quân cờ
-            painter.drawEllipse(x - radius - expand//2, 
-                                y - radius - expand//2,
-                                radius * 2 + expand, 
-                                radius * 2 + expand)
-            painter.restore()
     
     def _draw_selected(self, painter, row, col):
         """Vẽ đánh dấu quân cờ được chọn"""
@@ -509,6 +495,10 @@ class ChineseChessBoard(QWidget):
                     if (row, col) in valid_moves:
                         # Di chuyển quân cờ
                         move_success = self._make_move(selected_row, selected_col, row, col)
+                        
+                        # Đánh dấu nước đi mới nhất của người chơi
+                        if move_success:
+                            self.mark_last_move((selected_row, selected_col), (row, col), False)
                         
                         # Bỏ chọn quân
                         self.selected_piece = None
@@ -693,6 +683,12 @@ class ChineseChessBoard(QWidget):
         # Nếu một trong hai tướng không còn, trò chơi kết thúc
         return not (red_general_exists and black_general_exists)
     
+    def mark_last_move(self, start_pos, end_pos, is_ai_move=False):
+        """Đánh dấu nước đi cuối cùng"""
+        self.last_move = (start_pos, end_pos)
+        self.last_move_is_ai = is_ai_move
+        self.update()
+
     def make_ai_move(self):
         """Thực hiện nước đi của AI"""
         if self.game_over_state:
@@ -710,8 +706,7 @@ class ChineseChessBoard(QWidget):
             to_row, to_col = to_pos
             
             # Lưu nước đi gần nhất cho hiển thị
-            self.last_move = (from_pos, to_pos)
-            self.last_move_is_ai = True
+            self.mark_last_move(from_pos, to_pos, True)
             
             # Thực hiện nước đi
             result = self._make_move(from_row, from_col, to_row, to_col)

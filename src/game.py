@@ -30,10 +30,13 @@ class ChineseChessGame(QMainWindow):
         # Thiết lập biến
         self.game_mode = "human_vs_human"  # Chế độ mặc định: người vs người
         self.audio_enabled = True
+        self.ai_level = "medium"  # Mặc định là mức trung bình
+        self.ai_type = "advanced"  # Mặc định là AI nâng cao
+        self.current_player = "red"  # Màu đỏ đi trước
+        self.is_game_over = False
         
         # Khởi tạo AI 
         self.ai = ChineseChessAI()
-        self.ai_level = "medium"  # Mặc định là mức trung bình
         
         # Khởi tạo âm thanh nếu pygame được cài đặt
         try:
@@ -497,6 +500,28 @@ class ChineseChessGame(QMainWindow):
             else:  # hard
                 self.ai_level_combo.setCurrentIndex(2)
                 
+    def set_ai_type(self, ai_type):
+        """Thiết lập loại AI (cơ bản hoặc nâng cao)"""
+        self.ai_type = ai_type
+        # Cập nhật giao diện
+        self._update_game_info()
+
+    def _update_game_info(self):
+        """Cập nhật thông tin trò chơi hiển thị"""
+        # Cập nhật nhãn chế độ chơi
+        if self.game_mode == "human_vs_human":
+            mode_text = "Người đấu với Người"
+        elif self.game_mode == "human_vs_ai":
+            mode_text = "Người đấu với Máy"
+            # Hiển thị thêm thông tin về AI
+            ai_level_text = "Dễ" if self.ai_level == "easy" else ("Khó" if self.ai_level == "hard" else "Trung bình")
+            ai_type_text = "Nâng cao" if self.ai_type == "advanced" else "Cơ bản"
+            mode_text += f" (AI: {ai_type_text}, Độ khó: {ai_level_text})"
+        else:
+            mode_text = "Chơi Trực tuyến"
+        
+        self.mode_label.setText(f"Chế độ: {mode_text}")
+    
     def _on_game_over(self, result):
         """Xử lý khi trò chơi kết thúc"""
         message = ""
@@ -547,6 +572,111 @@ class ChineseChessGame(QMainWindow):
         self.menu = ChineseChessMenu()
         self.menu.show()
         self.close()
+
+    def _ai_move(self):
+        """Thực hiện nước đi của AI"""
+        if self.game_mode != "human_vs_ai" or self.is_game_over:
+            return
+        
+        # Lấy màu của AI (đối thủ)
+        ai_color = "black" if self.current_player == "red" else "red"
+        
+        # Báo hiệu AI đang suy nghĩ
+        self.status_label.setText("AI đang suy nghĩ...")
+        QApplication.processEvents()
+        
+        # Tạm dừng để AI "suy nghĩ"
+        thinking_time = 0.5  # Giây
+        if self.ai_level == "medium":
+            thinking_time = 1.0
+        elif self.ai_level == "hard":
+            thinking_time = 1.5
+            
+        time.sleep(thinking_time)
+        
+        # Chọn AI phù hợp và tính toán nước đi
+        move = None
+        
+        try:
+            if self.ai_type == "advanced":
+                # Sử dụng AI nâng cao
+                try:
+                    # Kiểm tra xem có thể nhập mô-đun AI nâng cao
+                    import importlib.util
+                    spec = importlib.util.find_spec("ai_advanced")
+                    
+                    if spec is not None:
+                        # Mô-đun tồn tại, sử dụng AI nâng cao
+                        from ai_advanced import AdvancedChineseChessAI
+                        ai = AdvancedChineseChessAI(self.chess_board, ai_color, self.ai_level)
+                        move = ai.get_best_move()
+                    else:
+                        # Không tìm thấy mô-đun, quay lại AI cơ bản
+                        from ai import ChineseChessAI
+                        ai = ChineseChessAI(self.chess_board, ai_color, self.ai_level)
+                        move = ai.get_best_move()
+                        self.status_label.setText("Không tìm thấy AI nâng cao, sử dụng AI cơ bản thay thế.")
+                        QApplication.processEvents()
+                        time.sleep(1.0)
+                except (ImportError, AttributeError) as e:
+                    # Nếu có lỗi, quay lại AI cơ bản
+                    print(f"Lỗi khi tải AI nâng cao: {e}")
+                    from ai import ChineseChessAI
+                    ai = ChineseChessAI(self.chess_board, ai_color, self.ai_level)
+                    move = ai.get_best_move()
+                    self.status_label.setText("Lỗi khi sử dụng AI nâng cao, dùng AI cơ bản thay thế.")
+                    QApplication.processEvents()
+                    time.sleep(1.0)
+            else:
+                # Sử dụng AI cơ bản
+                from ai import ChineseChessAI
+                ai = ChineseChessAI(self.chess_board, ai_color, self.ai_level)
+                move = ai.get_best_move()
+        except Exception as e:
+            print(f"Lỗi trong quá trình tính toán nước đi AI: {e}")
+            self.status_label.setText(f"Lỗi AI: {str(e)}")
+            QApplication.processEvents()
+            time.sleep(2.0)
+            self.status_label.setText("Lượt của " + ("Đỏ" if self.current_player == "red" else "Đen"))
+            return
+        
+        # Thực hiện nước đi của AI
+        if move:
+            start_pos, end_pos = move
+            # Lấy mã và vị trí quân cờ cũ
+            start_row, start_col = start_pos
+            end_row, end_col = end_pos
+            
+            selected_piece = self.chess_board.get_piece_at_position((start_row, start_col))
+            
+            # Đánh dấu nước đi của AI
+            self.chess_board.mark_last_move(start_pos, end_pos, True)
+            
+            # Thực hiện nước đi
+            self.chess_board.move_piece(start_pos, end_pos)
+            
+            # Hiển thị thông tin nước đi AI
+            piece_name = str(selected_piece) if selected_piece else "?"
+            self.status_label.setText(f"AI di chuyển {piece_name} từ {start_pos} đến {end_pos}")
+            
+            # Phát âm thanh nếu được bật
+            if self.audio_enabled:
+                try:
+                    pygame.mixer.Sound(os.path.join('resources', 'sounds', 'move.wav')).play()
+                except:
+                    pass  # Bỏ qua lỗi âm thanh
+            
+            # Cập nhật lượt đi
+            self._switch_player()
+            
+            # Kiểm tra kết thúc trò chơi
+            self._check_game_end()
+        else:
+            # AI không tìm thấy nước đi hợp lệ
+            self.status_label.setText(f"{'Đen' if ai_color == 'black' else 'Đỏ'} (AI) không tìm thấy nước đi hợp lệ!")
+            QApplication.processEvents()
+            time.sleep(1.0)
+            self._game_over(self.current_player)  # Người chơi hiện tại thắng
 
 def main():
     """Hàm chính chạy trò chơi"""

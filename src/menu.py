@@ -62,14 +62,28 @@ class ChineseChessMenu(QMainWindow):
         main_layout.addWidget(game_mode_group)
         
         # Mức độ AI (chỉ hiển thị khi chọn chế độ đấu với máy)
-        self.ai_level_group = QGroupBox("Mức độ khó")
+        self.ai_level_group = QGroupBox("Cài đặt AI")
         ai_level_layout = QVBoxLayout(self.ai_level_group)
         
+        # Lựa chọn loại AI
+        ai_type_label = QLabel("Loại AI:")
+        self.ai_type_combo = QComboBox()
+        self.ai_type_combo.addItems(["Cơ bản", "Nâng cao"])
+        self.ai_type_combo.setCurrentIndex(1)  # Mặc định là AI nâng cao
+        ai_level_layout.addWidget(ai_type_label)
+        ai_level_layout.addWidget(self.ai_type_combo)
+        
+        # Khoảng cách
+        ai_level_layout.addSpacing(10)
+        
+        # Mức độ AI
+        ai_level_label = QLabel("Mức độ khó:")
         self.ai_level_combo = QComboBox()
         self.ai_level_combo.addItems(["Dễ", "Trung bình", "Khó"])
         self.ai_level_combo.setCurrentIndex(1)  # Mặc định trung bình
-        
+        ai_level_layout.addWidget(ai_level_label)
         ai_level_layout.addWidget(self.ai_level_combo)
+        
         main_layout.addWidget(self.ai_level_group)
         self.ai_level_group.setVisible(False)
         
@@ -114,6 +128,7 @@ class ChineseChessMenu(QMainWindow):
         """Bắt đầu trò chơi với chế độ đã chọn"""
         game_mode = ""
         ai_level = ""
+        ai_type = ""
         
         # Lấy chế độ chơi
         if self.mode_human_radio.isChecked():
@@ -128,6 +143,9 @@ class ChineseChessMenu(QMainWindow):
                 ai_level = "medium"
             else:
                 ai_level = "hard"
+            
+            # Lấy loại AI
+            ai_type = "advanced" if self.ai_type_combo.currentIndex() == 1 else "basic"
         elif self.mode_online_radio.isChecked():
             game_mode = "online"
         
@@ -137,9 +155,10 @@ class ChineseChessMenu(QMainWindow):
         # Thiết lập chế độ chơi
         self.game.set_game_mode(game_mode)
         
-        # Thiết lập cấp độ AI nếu cần
+        # Thiết lập cấp độ và loại AI nếu cần
         if game_mode == "human_vs_ai":
             self.game.set_ai_level(ai_level)
+            self.game.set_ai_type(ai_type)
         
         # Hiển thị trò chơi
         self.game.show()
